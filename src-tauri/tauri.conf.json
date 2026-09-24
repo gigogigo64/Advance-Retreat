@@ -1,20 +1,22 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "advance-retreat",
+  "productName": "知进退",
   "version": "0.1.0",
-  "identifier": "com.administrator.advance-retreat",
+  "identifier": "com.gigogigo64.advance-retreat",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:5180",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
   "app": {
     "windows": [
       {
-        "title": "advance-retreat",
-        "width": 800,
-        "height": 600
+        "title": "知进退 · Advance & Retreat",
+        "width": 1080,
+        "height": 720,
+        "minWidth": 860,
+        "minHeight": 600
       }
     ],
     "security": {

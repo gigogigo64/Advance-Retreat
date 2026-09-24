@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@theme {
+  /* 知进退 主题色板 */
+  --color-primary: #10b981;      /* 翡翠绿 - 进（优点） */
+  --color-primary-soft: #d1fae5;
+  --color-secondary: #f43f5e;    /* 玫红 - 退（缺点） */
+  --color-secondary-soft: #ffe4e6;
+  --color-accent: #6366f1;       /* 靛蓝 - 强调 */
+  --color-bg: #f8fafc;
+  --color-surface: #ffffff;
+  --color-ink: #0f172a;
+  --color-ink-soft: #64748b;
+}
+
+:root {
+  --app-bg: #f6f7fb;
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --ink: #1e293b;
+  --ink-soft: #94a3b8;
+  --border: #e2e8f0;
+  --primary: #10b981;
+  --secondary: #f43f5e;
+  --accent: #6366f1;
+}
+
+.dark {
+  --app-bg: #0f172a;
+  --surface: #1e293b;
+  --surface-2: #334155;
+  --ink: #f1f5f9;
+  --ink-soft: #94a3b8;
+  --border: #334155;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: "Microsoft YaHei UI", "PingFang SC", system-ui, -apple-system, sans-serif;
+  background: var(--app-bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+input, textarea {
+  user-select: text;
+}
+
+/* 通用卡片 */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-soft); }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* 进度环动画 */
+.progress-ring circle {
+  transition: stroke-dashoffset 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
