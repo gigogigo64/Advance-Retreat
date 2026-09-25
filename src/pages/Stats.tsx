@@ -28,9 +28,9 @@ export function StatsPage() {
     return () => { alive = false; };
   }, [habits, checkins]);
 
-  // 年度热力图数据：当日应打卡项中的完成率
+  // 年度热力图数据：当日应打卡项中的完成率（无任务日返回 null = 空白）
   const heatmapData = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, number | null>();
     const byDate = new Map<string, Set<number>>();
     for (const c of checkins) {
       if (!byDate.has(c.date)) byDate.set(c.date, new Set());
@@ -45,7 +45,7 @@ export function StatsPage() {
         if (h.freq_type === "weekdays") { const w = d.getDay(); return w >= 1 && w <= 5; }
         return true;
       });
-      if (!due.length) { map.set(key, -1); continue; } // -1 表示当日无任务
+      if (!due.length) { map.set(key, null); continue; } // 无任务 → 空白，不是100%
       const done = byDate.get(key) ?? new Set();
       const rate = due.filter((h) => done.has(h.id)).length / due.length;
       map.set(key, rate);
@@ -163,17 +163,41 @@ export function StatsPage() {
         <div className="font-semibold mb-3">🔍 历史回顾（只读，不可补卡）</div>
         <TextInput type="date" value={browseDate} max={todayStr()}
           onChange={(e) => setBrowseDate(e.target.value)} className="!w-44 mb-3" />
-        <div className="flex flex-wrap gap-2 mb-3">
-          {habits.filter((h) => !h.archived).map((h) => (
-            <span key={h.id}
-              className={`px-2.5 py-1 rounded-lg text-xs border ${dayCheckins.includes(h.id) ? "text-white" : "text-[var(--ink-soft)]"}`}
-              style={dayCheckins.includes(h.id) ? { background: h.color, borderColor: h.color } : { borderColor: "var(--border)" }}>
-              {h.emoji} {h.name}{dayCheckins.includes(h.id) ? " ✓" : ""}
-            </span>
-          ))}
+        {/* 优缺点分列显示，与今日页一致：优点=点亮✓，缺点=划去+避开标 */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <div className="text-xs font-semibold text-emerald-600 mb-2">🌱 优点（坚持了）</div>
+            <div className="flex flex-wrap gap-2">
+              {habits.filter((h) => !h.archived && h.type === "good").map((h) => {
+                const done = dayCheckins.includes(h.id);
+                return (
+                  <span key={h.id}
+                    className={`px-2.5 py-1 rounded-lg text-xs border ${done ? "text-white font-medium" : "text-[var(--ink-soft)] opacity-60"}`}
+                    style={done ? { background: h.color, borderColor: h.color } : { borderColor: "var(--border)" }}>
+                    {h.emoji} {h.name}{done ? " ✓" : ""}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs font-semibold text-rose-500 mb-2">🛡️ 缺点（避开了）</div>
+            <div className="flex flex-wrap gap-2">
+              {habits.filter((h) => !h.archived && h.type === "bad").map((h) => {
+                const done = dayCheckins.includes(h.id);
+                return (
+                  <span key={h.id}
+                    className={`px-2.5 py-1 rounded-lg text-xs border ${done ? "text-rose-500 bg-rose-500/10 border-rose-300" : "text-[var(--ink-soft)] opacity-60"}`}>
+                    <span className={done ? "line-through" : ""}>{h.emoji} {h.name}</span>
+                    {done && <span className="ml-1">避开 ✓</span>}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
         </div>
         {dayNote && (
-          <div className="bg-[var(--surface-2)] rounded-xl p-3 text-sm">📝 {dayNote}</div>
+          <div className="bg-[var(--surface-2)] rounded-xl p-3 text-sm mt-3">📝 {dayNote}</div>
         )}
       </div>
     </div>

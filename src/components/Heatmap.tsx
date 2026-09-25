@@ -2,8 +2,8 @@
 export function Heatmap({
   data,
 }: {
-  /** key: YYYY-MM-DD, value: 完成率 0~1（当日应打卡项中已打卡比例） */
-  data: Map<string, number>;
+  /** key: YYYY-MM-DD, value: 完成率 0~1；null = 当日无任务，显示空白 */
+  data: Map<string, number | null>;
 }) {
   const cells: { date: Date; rate: number | null }[] = [];
   const today = new Date();
@@ -35,7 +35,7 @@ export function Heatmap({
   });
 
   const color = (rate: number | null) => {
-    if (rate === null) return "var(--surface-2)";
+    if (rate === null) return "transparent";
     if (rate === 0) return "#e2e8f0";
     if (rate < 0.34) return "#a7f3d0";
     if (rate < 0.67) return "#6ee7b7";

@@ -61,10 +61,13 @@ export function TodayPage() {
 
   const handleToggle = async (h: (typeof dueHabits)[number]) => {
     const added = await repo.toggleCheckin(h.id, today);
-    // 积分
+    const wasDoneBefore = doneSet.has(h.id);
+
     if (added) {
+      // 打卡加分
       const per = Number(await repo.getSettingValue("points_per_checkin") || 2);
       await repo.addPoints(per, `打卡「${h.name}」`, today);
+
       // 满分日判断
       const willBeFull = dueHabits.every((x) => x.id === h.id || doneSet.has(x.id));
       if (willBeFull) {
@@ -76,34 +79,62 @@ export function TodayPage() {
       } else {
         toast.success(`+${per} 分 ·「${h.name}」`);
       }
-      // 连续7天全勤奖励
       await maybeWeeklyBonus();
+    } else if (wasDoneBefore) {
+      // 取消打卡 → 扣回本次打卡所得的分（含满分奖励，防刷分）
+      const per = Number(await repo.getSettingValue("points_per_checkin") || 2);
+      await repo.addPoints(-per, `取消打卡「${h.name}」`, today);
+
+      // 如果取消前是满分日，扣回满分奖励
+      const wasFull = dueHabits.every((x) => doneSet.has(x.id));
+      if (wasFull) {
+        const fullPts = Number(await repo.getSettingValue("points_full_day") || 5);
+        await repo.addPoints(-fullPts, "取消今日满分", today);
+      }
+
+      // 重新检查：取消后，若此前刚好因本次打卡触发了7天全勤奖励，则扣回
+      await revokeWeeklyBonusIfNeeded();
+      toast(`已取消「${h.name}」，分数已相应扣除`, { icon: "↩️" });
     }
     await refresh();
   }
 
-  async function maybeWeeklyBonus() {
-    // 检查最近7天是否每天全勤（简单实现：有打卡记录的每天计算全勤）
+  /** 检查今天是否存在「连续7天全勤」积分记录，若有且今天已不再满足全勤，则撤销 */
+  async function revokeWeeklyBonusIfNeeded() {
+    const d = await repo.exportAll();
+    const today = todayStr();
+    const hasBonusToday = d.points_log.some((p) => p.reason === "连续7天全勤" && p.date === today);
+    if (!hasBonusToday) return;
+    if (await isSevenDayFull()) return; // 仍满足则不动
+    const bonus = Number(await repo.getSettingValue("points_weekly_bonus") || 10);
+    await repo.addPoints(-bonus, "撤销连续7天全勤", today);
+  }
+
+  async function isSevenDayFull(): Promise<boolean> {
     const d = await repo.exportAll();
     const perDayDone = new Map<string, Set<number>>();
     for (const c of d.checkins) {
       if (!perDayDone.has(c.date)) perDayDone.set(c.date, new Set());
       perDayDone.get(c.date)!.add(c.habit_id);
     }
-    let fullDays = 0;
     for (let i = 0; i < 7; i++) {
       const dt = new Date(); dt.setDate(dt.getDate() - i);
       const key = todayStr(dt);
       const doneSet = perDayDone.get(key);
-      if (!doneSet || !doneSet.size) return; // 有缺口
-      fullDays++;
+      if (!doneSet || !doneSet.size) return false;
     }
-    if (fullDays === 7) {
-      const already = d.points_log.some((p) => p.reason === "连续7天全勤" && p.date === todayStr());
+    return true;
+  }
+
+  async function maybeWeeklyBonus() {
+    if (await isSevenDayFull()) {
+      const d = await repo.exportAll();
+      const today = todayStr();
+      const already = d.points_log.some((p) => p.reason === "连续7天全勤" && p.date === today);
       if (!already) {
         const bonus = Number(await repo.getSettingValue("points_weekly_bonus") || 10);
-        await repo.addPoints(bonus, "连续7天全勤", todayStr());
-        toast.success(`🔥 连续7天全勤！额外 +${bonus} 分`);
+        await repo.addPoints(bonus, "连续7天全勤", today);
+        toast.success(`🔥 连续7天反复全勤！额外 +${bonus} 分`);
       }
     }
   }
@@ -117,7 +148,7 @@ export function TodayPage() {
   const bad = dueHabits.filter((h) => h.type === "bad");
 
   return (
-    <div className="p-6 max-w-4xl mx-auto relative">
+    <div className="p-6 max-w-5xl mx-auto relative">
       {/* 撒花 */}
       <AnimatePresence>
         {celebrate && <Confetti />}
@@ -137,16 +168,50 @@ export function TodayPage() {
         <ProgressRing value={doneCount} total={dueHabits.length} />
       </div>
 
-      {/* 优点 */}
-      {good.length > 0 && (
-        <Section title="🌱 优点培养" subtitle="坚持了就打卡" items={good} doneSet={doneSet}
-          streakMap={streakMap} onToggle={handleToggle} />
-      )}
-      {/* 缺点 */}
-      {bad.length > 0 && (
-        <Section title="🛡️ 缺点抵制" subtitle="避开了就打卡" items={bad} doneSet={doneSet}
-          streakMap={streakMap} onToggle={handleToggle} />
-      )}
+      {/* 左右两栏：优点 | 缺点 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* 优点栏 */}
+        <div className="min-w-0">
+          <div className="flex items-baseline gap-2 mb-3">
+            <span className="font-bold text-emerald-600">🌱 优点培养</span>
+            <span className="text-xs text-[var(--ink-soft)]">坚持了就打卡</span>
+            <span className="ml-auto text-xs text-[var(--ink-soft)]">
+              {good.filter((h) => doneSet.has(h.id)).length}/{good.length}
+            </span>
+          </div>
+          <div className="space-y-3">
+            {good.length === 0 && (
+              <div className="card p-6 text-center text-sm text-[var(--ink-soft)]">还没有优点项目</div>
+            )}
+            {good.map((h) => (
+              <HabitCard key={h.id} habit={h} done={doneSet.has(h.id)}
+                streak={streakMap.get(h.id)?.current ?? 0}
+                onClick={() => handleToggle(h)} />
+            ))}
+          </div>
+        </div>
+
+        {/* 缺点栏 */}
+        <div className="min-w-0">
+          <div className="flex items-baseline gap-2 mb-3">
+            <span className="font-bold text-rose-500">🛡️ 缺点抵制</span>
+            <span className="text-xs text-[var(--ink-soft)]">避开了就打卡</span>
+            <span className="ml-auto text-xs text-[var(--ink-soft)]">
+              {bad.filter((h) => doneSet.has(h.id)).length}/{bad.length}
+            </span>
+          </div>
+          <div className="space-y-3">
+            {bad.length === 0 && (
+              <div className="card p-6 text-center text-sm text-[var(--ink-soft)]">还没有缺点项目</div>
+            )}
+            {bad.map((h) => (
+              <HabitCard key={h.id} habit={h} done={doneSet.has(h.id)}
+                streak={streakMap.get(h.id)?.current ?? 0}
+                onClick={() => handleToggle(h)} />
+            ))}
+          </div>
+        </div>
+      </div>
 
       {/* 一句话回顾 */}
       <div className="card p-4 mt-6">
@@ -163,37 +228,6 @@ export function TodayPage() {
             保存
           </button>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function Section({
-  title, subtitle, items, doneSet, streakMap, onToggle,
-}: {
-  title: string; subtitle: string;
-  items: { id: number; name: string; emoji: string; color: string; category: string; type: string }[];
-  doneSet: Set<number>;
-  streakMap: Map<number, { current: number; longest: number }>;
-  onToggle: (h: never) => void;
-}) {
-  if (!items.length) return null;
-  return (
-    <div className="mb-6">
-      <div className="flex items-baseline gap-2 mb-3">
-        <span className="font-bold">{title}</span>
-        <span className="text-xs text-[var(--ink-soft)]">{subtitle}</span>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {items.map((h) => (
-          <HabitCard
-            key={h.id}
-            habit={h as never}
-            done={doneSet.has(h.id)}
-            streak={streakMap.get(h.id)?.current ?? 0}
-            onClick={() => onToggle(h as never)}
-          />
-        ))}
       </div>
     </div>
   );

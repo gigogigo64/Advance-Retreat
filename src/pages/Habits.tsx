@@ -13,7 +13,6 @@ export function HabitsPage() {
   const [editing, setEditing] = useState<Habit | null>(null);
   const [creating, setCreating] = useState(false);
 
-  const list = habits.filter((h) => h.type === tab && (showArchived || !h.archived));
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -39,13 +38,25 @@ export function HabitsPage() {
         ))}
       </div>
 
-      <div className="space-y-2.5">
-        {list.length === 0 && (
-          <div className="card p-10 text-center text-[var(--ink-soft)]">
-            还没有{tab === "good" ? "优点" : "缺点"}，点右上角「新增」开始
+      {/* 左右两栏：优点 | 缺点 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {(["good","bad"] as HabitType[]).map((colType) => {
+          const col = habits.filter((h) => h.type === colType && (showArchived || !h.archived));
+          return (
+        <div key={colType} className="min-w-0">
+          <div className="flex items-baseline gap-2 mb-3">
+            <span className={`font-bold ${colType === "good" ? "text-emerald-600" : "text-rose-500"}`}>
+              {colType === "good" ? "🌱 优点" : "🛡️ 缺点"}
+            </span>
+            <span className="text-xs text-[var(--ink-soft)]">{col.length} 项</span>
           </div>
-        )}
-        {list.map((h) => (
+          <div className="space-y-2.5">
+            {col.length === 0 && (
+              <div className="card p-6 text-center text-[var(--ink-soft)] text-sm">
+                还没有{colType === "good" ? "优点" : "缺点"}，点右上角「新增{colType === "good" ? "优点" : "缺点"}」开始
+              </div>
+            )}
+            {col.map((h) => (
           <div key={h.id} className="card p-4 flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0"
               style={{ background: `${h.color}22` }}>
@@ -62,7 +73,11 @@ export function HabitsPage() {
             </div>
             <Button variant="ghost" onClick={() => setEditing(h)}>编辑</Button>
           </div>
-        ))}
+            ))}
+          </div>
+        </div>
+          );
+        })}
       </div>
 
       <HabitForm
