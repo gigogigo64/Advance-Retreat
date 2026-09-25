@@ -8,7 +8,7 @@ import { Modal, Button, TextInput } from "./ui";
 
 /**
  * 缺点 Boss 卡：
- * - 每天避开它 = 削弱它 3 点生命值（HP 0~100，约 34 天击败）
+ * - 每天避开它 = 按该 Boss 的 hp_step 削弱生命值（血条上限 hp_max，默认 100/3）
  * - 划去 UI 加强：斜切「避开」印章 + 整卡压暗 + 轻微旋转
  * - HP 归零 → 进入「击败」态，可一键让 LLM 把它转化为对应好习惯
  */
@@ -20,7 +20,9 @@ export function BossCard({
   /** 击败并成功转化为优点后回调 */
   onConverted: () => void;
 }) {
-  const hp = Math.max(0, Math.min(100, habit.hp));
+  const hpMax = Math.max(1, habit.hp_max || 100);
+  const hpStep = habit.hp_step ?? 3;
+  const hp = Math.max(0, Math.min(hpMax, habit.hp));
   const defeated = hp <= 0;
   const [convertOpen, setConvertOpen] = useState(false);
 
@@ -85,12 +87,12 @@ export function BossCard({
                           : "linear-gradient(90deg,#dc2626,#b91c1c)",
                   }}
                   initial={false}
-                  animate={{ width: `${hp}%` }}
+                  animate={{ width: `${(hp / hpMax) * 100}%` }}
                   transition={{ type: "spring", stiffness: 160, damping: 22 }}
                 />
               </div>
               <span className="text-[10px] font-bold text-rose-500/90 tabular-nums w-9 text-right">
-                {defeated ? "倒下" : `HP ${hp}`}
+                {defeated ? "倒下" : `HP ${hp}/${hpMax}`}
               </span>
               {streak > 0 && !defeated && (
                 <span className="text-amber-500 font-medium text-xs">🔥{streak}</span>
@@ -103,7 +105,7 @@ export function BossCard({
           {defeated ? (
             <span className="text-rose-500 font-semibold">⚔️ 已被击败！点击下方按钮将它转化为优点</span>
           ) : (
-            <span>{done ? "已避开 ✓ 削弱 -3 HP" : "今天避开了吗？避开 = 削弱它"}</span>
+            <span>{done ? `已避开 ✓ 削弱 -${hpStep} HP` : "今天避开了吗？避开 = 削弱它"} · +{habit.points ?? 2} 分</span>
           )}
         </div>
 

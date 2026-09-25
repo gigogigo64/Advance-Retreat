@@ -15,8 +15,14 @@ export interface Habit {
   archived: number;
   /** 列表排序（值越小越靠前） */
   sort_order: number;
-  /** 缺点 Boss 生命值（0~100，仅 type=bad 有效） */
+  /** 缺点 Boss 当前生命值（0~hp_max，仅 type=bad 有效） */
   hp: number;
+  /** 缺点 Boss 血量上限 */
+  hp_max: number;
+  /** 缺点 Boss 每次成功避开扣除的血量 */
+  hp_step: number;
+  /** 每条习惯完成打卡得分 */
+  points: number;
   created_at: string;
 }
 

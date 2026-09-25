@@ -15,6 +15,7 @@ export async function listHabits(archived = false): Promise<Habit[]> {
 export async function createHabit(h: {
   type: HabitType; name: string; emoji: string; color: string;
   category: string; freq_type: FreqType; freq_target: number; note: string;
+  hp_max?: number; hp_step?: number; points?: number;
 }): Promise<number> {
   const d = await getDb();
   // 排到同类末尾
@@ -22,10 +23,10 @@ export async function createHabit(h: {
     "SELECT MAX(sort_order) as m FROM habits WHERE type = ?", [h.type]
   );
   const r = await d.execute(
-    `INSERT INTO habits (type, name, emoji, color, category, freq_type, freq_target, start_date, note, sort_order)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO habits (type, name, emoji, color, category, freq_type, freq_target, start_date, note, sort_order, hp_max, hp_step, points)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [h.type, h.name, h.emoji, h.color, h.category, h.freq_type, h.freq_target, todayStr(), h.note,
-     (maxRow[0]?.m ?? 0) + 1]
+     (maxRow[0]?.m ?? 0) + 1, h.hp_max ?? 100, h.hp_step ?? 3, h.points ?? 2]
   );
   return r.lastInsertId as number;
 }
@@ -224,10 +225,11 @@ export async function importAll(data: BackupData): Promise<void> {
     await d.execute("DELETE FROM redemptions"); await d.execute("DELETE FROM rewards");
     for (const h of data.habits ?? [])
       await d.execute(
-        `INSERT INTO habits (id, type, name, emoji, color, category, freq_type, freq_target, start_date, note, archived, sort_order, hp)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO habits (id, type, name, emoji, color, category, freq_type, freq_target, start_date, note, archived, sort_order, hp, hp_max, hp_step, points)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [h.id, h.type, h.name, h.emoji, h.color, h.category, h.freq_type, h.freq_target, h.start_date, h.note, h.archived,
-         (h as Partial<Habit>).sort_order ?? h.id, (h as Partial<Habit>).hp ?? 100]
+         (h as Partial<Habit>).sort_order ?? h.id, (h as Partial<Habit>).hp ?? 100,
+         (h as Partial<Habit>).hp_max ?? 100, (h as Partial<Habit>).hp_step ?? 3, (h as Partial<Habit>).points ?? 2]
       );
     for (const c of data.checkins ?? [])
       await d.execute("INSERT OR IGNORE INTO checkins (habit_id, date) VALUES (?,?)", [c.habit_id, c.date]);

@@ -106,7 +106,7 @@ export function SettingsPage() {
       <div className="card p-5">
         <div className="font-semibold mb-3">⭐ 积分规则</div>
         <div className="grid grid-cols-3 gap-3">
-          <Field label="每次打卡"><TextInput type="number" min={0} value={perCheckin} onChange={(e) => setPerCheckin(Number(e.target.value))} /></Field>
+          <Field label="每次打卡（新习惯默认）"><TextInput type="number" min={0} value={perCheckin} onChange={(e) => setPerCheckin(Number(e.target.value))} /></Field>
           <Field label="连续7天全勤"><TextInput type="number" min={0} value={weeklyBonus} onChange={(e) => setWeeklyBonus(Number(e.target.value))} /></Field>
           <Field label="每日满分"><TextInput type="number" min={0} value={fullDay} onChange={(e) => setFullDay(Number(e.target.value))} /></Field>
         </div>

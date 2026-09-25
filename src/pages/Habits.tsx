@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useApp } from "../lib/store";
 import * as repo from "../lib/repo";
@@ -15,6 +15,24 @@ export function HabitsPage() {
   // 拖拽状态：正在拖拽的 id、悬停目标 id（同栏内）
   const [dragId, setDragId] = useState<number | null>(null);
   const [overId, setOverId] = useState<number | null>(null);
+  const [defaultPoints, setDefaultPoints] = useState(2);
+
+  // 新建习惯的默认得分取自设置页「每次打卡（新习惯默认）」
+  useEffect(() => {
+    repo.getSettingValue("points_per_checkin").then((v) => setDefaultPoints(Number(v) || 2));
+  }, []);
+
+  /** 同栏内上移 / 下移（拖拽的可靠备选） */
+  const move = async (colType: HabitType, id: number, dir: -1 | 1) => {
+    const col = habits.filter((h) => h.type === colType && (showArchived || !h.archived));
+    const ids = col.map((h) => h.id);
+    const i = ids.indexOf(id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    await repo.reorderHabits(colType, ids);
+    await refresh();
+  };
 
   const commitReorder = async (colType: HabitType, targetId: number) => {
     if (dragId == null || dragId === targetId) { setDragId(null); setOverId(null); return; }
@@ -38,7 +56,7 @@ export function HabitsPage() {
       </div>
 
       <div className="text-xs text-[var(--ink-soft)] mb-3">
-        💡 点名字 / 图标 / 分类 / 频率可直接就地编辑；按住左侧 ⠿ 拖动可调顺序。
+        💡 点名字 / 图标 / 分类 / 频率可直接就地编辑；按住左侧 ⠿ 拖动可调顺序，或用 ▲▼ 按钮上下移动。
       </div>
 
       {/* 左右两栏：优点 | 缺点 */}
@@ -66,7 +84,7 @@ export function HabitsPage() {
                     还没有{isGood ? "优点" : "缺点"}，点上方「+ 新增{isGood ? "优点" : "缺点"}」开始
                   </div>
                 )}
-                {col.map((h) => (
+                {col.map((h, idx) => (
                   <HabitRow
                     key={h.id}
                     habit={h}
@@ -78,6 +96,10 @@ export function HabitsPage() {
                     onDragEnd={() => { setDragId(null); setOverId(null); }}
                     onEdit={() => setEditing(h)}
                     onChanged={refresh}
+                    first={idx === 0}
+                    last={idx === col.length - 1}
+                    onMoveUp={() => move(colType, h.id, -1)}
+                    onMoveDown={() => move(colType, h.id, 1)}
                   />
                 ))}
               </div>
@@ -87,10 +109,12 @@ export function HabitsPage() {
       </div>
 
       <HabitForm
+        key={editing ? `edit-${editing.id}` : creatingType ? `new-${creatingType}` : "closed"}
         open={!!creatingType || !!editing}
         onClose={() => { setCreatingType(null); setEditing(null); }}
         initial={editing}
         type={creatingType ?? editing?.type ?? "good"}
+        defaultPoints={defaultPoints}
         onSaved={async () => { await refresh(); setCreatingType(null); setEditing(null); }}
       />
     </div>
@@ -101,10 +125,12 @@ export function HabitsPage() {
 
 function HabitRow({
   habit, dragging, over, onDragStart, onDragEnter, onDrop, onDragEnd, onEdit, onChanged,
+  first, last, onMoveUp, onMoveDown,
 }: {
   habit: Habit; dragging: boolean; over: boolean;
   onDragStart: () => void; onDragEnter: () => void; onDrop: () => void; onDragEnd: () => void;
   onEdit: () => void; onChanged: () => Promise<void> | void;
+  first: boolean; last: boolean; onMoveUp: () => void; onMoveDown: () => void;
 }) {
   const isGood = habit.type === "good";
   const [editingName, setEditingName] = useState(false);
@@ -139,18 +165,33 @@ function HabitRow({
 
   return (
     <div
-      draggable
-      onDragStart={onDragStart}
       onDragEnter={onDragEnter}
-      onDragOver={(e) => e.preventDefault()}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
       onDrop={(e) => { e.preventDefault(); onDrop(); }}
-      onDragEnd={onDragEnd}
       className={`card p-3.5 flex items-center gap-2.5 transition-all select-none
         ${dragging ? "opacity-40 scale-95" : ""} ${over ? "ring-2 ring-emerald-400/60" : "hover:shadow-md"}`}
     >
-      {/* 拖拽把手 */}
-      <div className="text-[var(--ink-soft)] cursor-grab active:cursor-grabbing text-base leading-none px-0.5" title="拖动调整顺序">
+      {/* 拖拽把手（仅把手可拖，避免与按钮/输入冲突） */}
+      <div
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/plain", String(habit.id));
+          e.dataTransfer.effectAllowed = "move";
+          onDragStart();
+        }}
+        onDragEnd={onDragEnd}
+        className="text-[var(--ink-soft)] cursor-grab active:cursor-grabbing text-base leading-none px-0.5"
+        title="按住拖动调整顺序"
+      >
         ⠿
+      </div>
+
+      {/* 上移 / 下移（拖拽的可靠备选） */}
+      <div className="flex flex-col -my-1 shrink-0">
+        <button onClick={onMoveUp} disabled={first} title="上移"
+          className="text-[10px] leading-none text-[var(--ink-soft)] hover:text-emerald-600 disabled:opacity-25 px-0.5">▲</button>
+        <button onClick={onMoveDown} disabled={last} title="下移"
+          className="text-[10px] leading-none text-[var(--ink-soft)] hover:text-emerald-600 disabled:opacity-25 px-0.5">▼</button>
       </div>
 
       {/* 图标：点击弹出 emoji 选择 */}
@@ -215,8 +256,9 @@ function HabitRow({
           <button onClick={cycleFreq} title="点击换频率"
             className="px-1.5 py-0.5 rounded-md hover:bg-[var(--surface-2)] transition-colors">🔁 {freqLabel(habit)}</button>
           {habit.type === "bad" && !habit.archived && (
-            <span className="text-rose-500/80 font-medium">HP {Math.max(0, habit.hp)}</span>
+            <span className="text-rose-500/80 font-medium">HP {Math.max(0, habit.hp)}/{habit.hp_max ?? 100}</span>
           )}
+          <span className="text-amber-600/80 font-medium">+{habit.points ?? 2}分/次</span>
           {habit.note && <span className="truncate max-w-[120px]">· {habit.note}</span>}
         </div>
       </div>
@@ -254,14 +296,20 @@ function freqLabel(h: Habit): string {
   return `每周 ${h.freq_target} 次`;
 }
 
+/** 取整并夹取到 [lo, hi] */
+function clampInt(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, Math.round(Number.isFinite(v) ? v : lo)));
+}
+
 /* ---------------- 完整编辑弹窗（颜色/备注/每周次数） ---------------- */
 
 function HabitForm({
-  open, onClose, initial, type, onSaved,
+  open, onClose, initial, type, defaultPoints, onSaved,
 }: {
   open: boolean; onClose: () => void; initial: Habit | null;
-  type: HabitType; onSaved: () => void;
+  type: HabitType; defaultPoints: number; onSaved: () => void;
 }) {
+  // 由父组件用 key 强制重挂载，故此处直接以 initial / 默认值初始化
   const [name, setName] = useState(initial?.name ?? "");
   const [emoji, setEmoji] = useState(initial?.emoji ?? (type === "good" ? "🌱" : "🛡️"));
   const [color, setColor] = useState(initial?.color ?? HABIT_COLORS[0]);
@@ -269,26 +317,23 @@ function HabitForm({
   const [freqType, setFreqType] = useState<FreqType>(initial?.freq_type ?? "daily");
   const [freqTarget, setFreqTarget] = useState(initial?.freq_target ?? 3);
   const [note, setNote] = useState(initial?.note ?? "");
-
-  // 切换编辑对象/新建类型时重置
-  const [lastKey, setLastKey] = useState<string | null>(null);
-  const formKey = `${initial?.id ?? "new"}-${type}`;
-  if (formKey !== lastKey) {
-    setLastKey(formKey);
-    setName(initial?.name ?? "");
-    setEmoji(initial?.emoji ?? (type === "good" ? "🌱" : "🛡️"));
-    setColor(initial?.color ?? HABIT_COLORS[0]); setCategory(initial?.category ?? "其他");
-    setFreqType(initial?.freq_type ?? "daily"); setFreqTarget(initial?.freq_target ?? 3);
-    setNote(initial?.note ?? "");
-  }
+  const [hpMax, setHpMax] = useState(initial?.hp_max ?? 100);
+  const [hpStep, setHpStep] = useState(initial?.hp_step ?? 3);
+  const [points, setPoints] = useState(initial?.points ?? defaultPoints);
 
   const save = async () => {
     if (!name.trim()) { toast.error("名称不能为空"); return; }
+    const fields = {
+      name, emoji, color, category, freq_type: freqType, freq_target: freqTarget, note,
+      hp_max: clampInt(hpMax, 1, 9999),
+      hp_step: clampInt(hpStep, 0, 9999),
+      points: clampInt(points, 0, 9999),
+    };
     if (initial) {
-      await repo.updateHabit(initial.id, { name, emoji, color, category, freq_type: freqType, freq_target: freqTarget, note });
+      await repo.updateHabit(initial.id, fields);
       toast.success("已更新");
     } else {
-      await repo.createHabit({ type, name, emoji, color, category, freq_type: freqType, freq_target: freqTarget, note });
+      await repo.createHabit({ type, ...fields });
       toast.success("已添加");
     }
     onSaved();
@@ -325,6 +370,19 @@ function HabitForm({
             onChange={(e) => setFreqTarget(Number(e.target.value))} />
         </Field>
       )}
+      {type === "bad" && (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="血量上限">
+            <TextInput type="number" min={1} value={hpMax} onChange={(e) => setHpMax(Number(e.target.value))} />
+          </Field>
+          <Field label="每次避开扣血">
+            <TextInput type="number" min={0} value={hpStep} onChange={(e) => setHpStep(Number(e.target.value))} />
+          </Field>
+        </div>
+      )}
+      <Field label="每次完成加分">
+        <TextInput type="number" min={0} value={points} onChange={(e) => setPoints(Number(e.target.value))} />
+      </Field>
       <Field label="备注（可选）">
         <TextInput value={note} onChange={(e) => setNote(e.target.value)} maxLength={50} placeholder="补充说明" />
       </Field>

@@ -13,6 +13,11 @@ import { useEffect } from "react";
 
 const WEEKDAYS_CN = ["日", "一", "二", "三", "四", "五", "六"];
 
+/* 每条习惯的自定义属性（兼容老数据） */
+const ptsOf = (h: { points?: number }) => (Number.isFinite(h.points) ? Math.max(0, h.points as number) : 2);
+const stepOf = (h: { hp_step?: number }) => (Number.isFinite(h.hp_step) ? Math.max(0, h.hp_step as number) : 3);
+const maxOf = (h: { hp_max?: number }) => (Number.isFinite(h.hp_max) ? Math.max(1, h.hp_max as number) : 100);
+
 export function TodayPage() {
   const { habits, checkins, refresh } = useApp();
   const today = todayStr();
@@ -65,13 +70,13 @@ export function TodayPage() {
     const wasDoneBefore = doneSet.has(h.id);
 
     if (added) {
-      // 打卡加分
-      const per = Number(await repo.getSettingValue("points_per_checkin") || 2);
+      // 打卡加分（每条习惯自定义，权威值）
+      const per = ptsOf(h);
       await repo.addPoints(per, `打卡「${h.name}」`, today);
 
-      // 缺点 Boss：避开一次，削弱它 3 点生命值
+      // 缺点 Boss：避开一次，按该 Boss 的扣血值削弱
       if (h.type === "bad") {
-        const newHp = Math.max(0, h.hp - 3);
+        const newHp = Math.max(0, h.hp - stepOf(h));
         await repo.updateHabit(h.id, { hp: newHp });
         if (newHp === 0) toast.success(`⚔️ 「${h.name}」被击败了！可以把它转化为优点了`);
       }
@@ -90,12 +95,12 @@ export function TodayPage() {
       await reconcileWeeklyBonus();
     } else if (wasDoneBefore) {
       // 取消打卡 → 扣回本次打卡所得的分（含满分奖励，防刷分）
-      const per = Number(await repo.getSettingValue("points_per_checkin") || 2);
+      const per = ptsOf(h);
       await repo.addPoints(-per, `取消打卡「${h.name}」`, today);
 
-      // 缺点 Boss：取消避开，回补生命值
+      // 缺点 Boss：取消避开，回补生命值（不超上限）
       if (h.type === "bad") {
-        await repo.updateHabit(h.id, { hp: Math.min(100, h.hp + 3) });
+        await repo.updateHabit(h.id, { hp: Math.min(maxOf(h), h.hp + stepOf(h)) });
       }
 
       // 如果取消前是满分日，扣回满分奖励

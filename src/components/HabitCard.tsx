@@ -54,7 +54,7 @@ export function HabitCard({
       </div>
       {isGood && (
         <div className="text-[11px] mt-2 text-[var(--ink-soft)]">
-          {done ? "已坚持 ✓" : "今天坚持了吗？"}
+          {done ? "已坚持 ✓" : "今天坚持了吗？"} · +{habit.points ?? 2} 分
         </div>
       )}
     </motion.button>

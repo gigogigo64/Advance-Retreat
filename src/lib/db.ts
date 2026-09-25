@@ -17,6 +17,9 @@ CREATE TABLE IF NOT EXISTS habits (
   archived INTEGER NOT NULL DEFAULT 0,
   sort_order INTEGER NOT NULL DEFAULT 0,
   hp INTEGER NOT NULL DEFAULT 100,
+  hp_max INTEGER NOT NULL DEFAULT 100,
+  hp_step INTEGER NOT NULL DEFAULT 3,
+  points INTEGER NOT NULL DEFAULT 2,
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
@@ -85,6 +88,13 @@ export async function getDb(): Promise<Database> {
       await db.execute("ALTER TABLE habits ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0");
     if (!names.has("hp"))
       await db.execute("ALTER TABLE habits ADD COLUMN hp INTEGER NOT NULL DEFAULT 100");
+    // v0.2(REQ-02)：Boss 血量上限/每次扣血 + 每条习惯独立得分
+    const needCustomCols = !names.has("hp_max");
+    if (needCustomCols) {
+      await db.execute("ALTER TABLE habits ADD COLUMN hp_max INTEGER NOT NULL DEFAULT 100");
+      await db.execute("ALTER TABLE habits ADD COLUMN hp_step INTEGER NOT NULL DEFAULT 3");
+      await db.execute("ALTER TABLE habits ADD COLUMN points INTEGER NOT NULL DEFAULT 2");
+    }
     await db.execute(SCHEMA);
     // 默认积分规则
     await db.execute(
@@ -99,6 +109,11 @@ export async function getDb(): Promise<Database> {
         ('llm_api_key', 'um-share-ZLGH16Jx048VwokN71gkWVVzFRtSH2ULlb_BD7CkPRw'),
         ('llm_model', 'GLM-5.3-Flash')`
     );
+    // 老库回填：points 取当时全局默认，避免行为突变
+    if (needCustomCols)
+      await db.execute(
+        "UPDATE habits SET points = CAST(COALESCE((SELECT value FROM settings WHERE key='points_per_checkin'),'2') AS INTEGER)"
+      );
     // 老库已有数据时，按 type 填充初始 sort_order
     await db.execute(
       `UPDATE habits SET sort_order = id WHERE sort_order = 0`
