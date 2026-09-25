@@ -7,7 +7,7 @@ import { todayStr } from "./types";
 export async function listHabits(archived = false): Promise<Habit[]> {
   const d = await getDb();
   return d.select<Habit[]>(
-    "SELECT * FROM habits WHERE archived = ? ORDER BY type, created_at",
+    "SELECT * FROM habits WHERE archived = ? ORDER BY type DESC, sort_order, id",
     [archived ? 1 : 0]
   );
 }
@@ -17,10 +17,15 @@ export async function createHabit(h: {
   category: string; freq_type: FreqType; freq_target: number; note: string;
 }): Promise<number> {
   const d = await getDb();
+  // 排到同类末尾
+  const maxRow = await d.select<{ m: number | null }[]>(
+    "SELECT MAX(sort_order) as m FROM habits WHERE type = ?", [h.type]
+  );
   const r = await d.execute(
-    `INSERT INTO habits (type, name, emoji, color, category, freq_type, freq_target, start_date, note)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
-    [h.type, h.name, h.emoji, h.color, h.category, h.freq_type, h.freq_target, todayStr(), h.note]
+    `INSERT INTO habits (type, name, emoji, color, category, freq_type, freq_target, start_date, note, sort_order)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    [h.type, h.name, h.emoji, h.color, h.category, h.freq_type, h.freq_target, todayStr(), h.note,
+     (maxRow[0]?.m ?? 0) + 1]
   );
   return r.lastInsertId as number;
 }
@@ -43,6 +48,20 @@ export async function archiveHabit(id: number, archived: boolean): Promise<void>
 export async function deleteHabit(id: number): Promise<void> {
   const d = await getDb();
   await d.execute("DELETE FROM habits WHERE id = ?", [id]);
+}
+
+/** 保存同类内的新顺序（传入该 type 全部 id，按新顺序） */
+export async function reorderHabits(_type: HabitType, orderedIds: number[]): Promise<void> {
+  const d = await getDb();
+  await d.execute("BEGIN");
+  try {
+    for (let i = 0; i < orderedIds.length; i++)
+      await d.execute("UPDATE habits SET sort_order = ? WHERE id = ?", [i + 1, orderedIds[i]]);
+    await d.execute("COMMIT");
+  } catch (e) {
+    await d.execute("ROLLBACK");
+    throw e;
+  }
 }
 
 /* ---------------- checkins ---------------- */
@@ -164,6 +183,62 @@ export async function listRedemptions(): Promise<Redemption[]> {
   return d.select<Redemption[]>("SELECT id, reward_name, cost, date FROM redemptions ORDER BY created_at DESC");
 }
 
+/* ---------------- LLM（缺点→优点智能转化） ---------------- */
+
+export interface LlmSuggestion {
+  name: string;
+  emoji: string;
+  note: string;
+}
+
+/**
+ * 调用外接 LLM，把坏习惯改写为对应的好习惯。
+ * 走 Tauri http 插件（绕过 WebView CORS），模型返回纯 JSON。
+ */
+export async function suggestGoodHabit(badName: string, badNote: string): Promise<LlmSuggestion> {
+  const [baseUrl, apiKey, model] = await Promise.all([
+    getSettingValue("llm_base_url"),
+    getSettingValue("llm_api_key"),
+    getSettingValue("llm_model"),
+  ]);
+  if (!baseUrl || !apiKey || !model)
+    throw new Error("未配置 LLM，请到设置页填写");
+
+  const sys =
+    "你是习惯养成教练。用户会给出一个坏习惯，你要把它改写成一个具体、可执行、可打卡的对应好习惯。" +
+    '严格只输出一个 JSON 对象，不要任何其他文字：{"name":"好习惯名(不超过14字)","emoji":"单个emoji","note":"一句执行建议(不超过20字)"}';
+  const user = `坏习惯：${badName}${badNote ? `（${badNote}）` : ""}`;
+
+  const resp = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: sys },
+        { role: "user", content: user },
+      ],
+      max_tokens: 200,
+      temperature: 0.6,
+    }),
+  });
+  if (!resp.ok) throw new Error(`LLM 请求失败 (${resp.status})`);
+  const data = await resp.json();
+  const text: string = data?.choices?.[0]?.message?.content ?? "";
+  const m = text.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error("LLM 返回格式异常");
+  const obj = JSON.parse(m[0]) as Partial<LlmSuggestion>;
+  if (!obj.name) throw new Error("LLM 未返回有效名称");
+  return {
+    name: String(obj.name).slice(0, 20),
+    emoji: obj.emoji && String(obj.emoji).length <= 4 ? String(obj.emoji) : "🌱",
+    note: obj.note ? String(obj.note).slice(0, 50) : "",
+  };
+}
+
 /* ---------------- export / import ---------------- */
 
 export interface BackupData {
@@ -198,9 +273,10 @@ export async function importAll(data: BackupData): Promise<void> {
     await d.execute("DELETE FROM redemptions"); await d.execute("DELETE FROM rewards");
     for (const h of data.habits ?? [])
       await d.execute(
-        `INSERT INTO habits (id, type, name, emoji, color, category, freq_type, freq_target, start_date, note, archived)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-        [h.id, h.type, h.name, h.emoji, h.color, h.category, h.freq_type, h.freq_target, h.start_date, h.note, h.archived]
+        `INSERT INTO habits (id, type, name, emoji, color, category, freq_type, freq_target, start_date, note, archived, sort_order, hp)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [h.id, h.type, h.name, h.emoji, h.color, h.category, h.freq_type, h.freq_target, h.start_date, h.note, h.archived,
+         (h as Partial<Habit>).sort_order ?? h.id, (h as Partial<Habit>).hp ?? 100]
       );
     for (const c of data.checkins ?? [])
       await d.execute("INSERT OR IGNORE INTO checkins (habit_id, date) VALUES (?,?)", [c.habit_id, c.date]);

@@ -4,7 +4,7 @@ import type { Habit } from "../lib/types";
 /**
  * 打卡卡片：
  * - 优点打卡 → 绿色高亮 + ✓
- * - 缺点打卡 → 名称划去 + 灰化（保留显示，以示「今天避开了」）
+ * - 缺点打卡 → 用 BossCard（划去印章 + HP 血条）
  */
 export function HabitCard({
   habit, done, streak, onClick,
@@ -13,10 +13,9 @@ export function HabitCard({
 }) {
   const isGood = habit.type === "good";
 
-  // 打卡后的视觉：优点=点亮，缺点=划去淡出
   const doneStyle = isGood
     ? { borderColor: habit.color, background: `${habit.color}14` }
-    : { borderColor: "var(--border)", background: "var(--surface-2)", opacity: 0.72 };
+    : {};
 
   return (
     <motion.button
@@ -35,9 +34,7 @@ export function HabitCard({
           {habit.emoji}
         </div>
         <div className="flex-1 min-w-0">
-          <div className={`font-semibold text-sm truncate ${!isGood && done ? "line-through" : ""}`}>
-            {habit.name}
-          </div>
+          <div className="font-semibold text-sm truncate">{habit.name}</div>
           <div className="text-xs text-[var(--ink-soft)] mt-0.5 flex items-center gap-2">
             <span>{habit.category}</span>
             {streak > 0 && (
@@ -45,8 +42,7 @@ export function HabitCard({
             )}
           </div>
         </div>
-        {/* 右侧状态标 */}
-        {isGood ? (
+        {isGood && (
           <div
             className={`w-7 h-7 rounded-full flex items-center justify-center text-sm shrink-0 border-2 transition-all
               ${done ? "border-transparent text-white" : "border-[var(--border)] text-transparent"}`}
@@ -54,22 +50,13 @@ export function HabitCard({
           >
             ✓
           </div>
-        ) : (
-          <div
-            className={`px-2 h-7 rounded-full flex items-center justify-center text-xs shrink-0 border transition-all
-              ${done
-                ? "bg-rose-500/15 text-rose-500 border-transparent font-medium"
-                : "border-[var(--border)] text-transparent"}`}
-          >
-            避开
-          </div>
         )}
       </div>
-      <div className="text-[11px] mt-2 text-[var(--ink-soft)]">
-        {isGood
-          ? done ? "已坚持 ✓" : "今天坚持了吗？"
-          : done ? "已避开 ✓" : "今天避开了吗？"}
-      </div>
+      {isGood && (
+        <div className="text-[11px] mt-2 text-[var(--ink-soft)]">
+          {done ? "已坚持 ✓" : "今天坚持了吗？"}
+        </div>
+      )}
     </motion.button>
   );
 }

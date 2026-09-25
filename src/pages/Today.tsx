@@ -6,8 +6,9 @@ import * as repo from "../lib/repo";
 import { todayStr } from "../lib/types";
 import { streaks } from "../lib/streak";
 import { HabitCard } from "../components/HabitCard";
+import { BossCard } from "../components/BossCard";
 import { ProgressRing } from "../components/ProgressRing";
-import { TextInput } from "../components/ui";
+import { Button, TextInput } from "../components/ui";
 import { useEffect } from "react";
 
 const WEEKDAYS_CN = ["日", "一", "二", "三", "四", "五", "六"];
@@ -68,6 +69,13 @@ export function TodayPage() {
       const per = Number(await repo.getSettingValue("points_per_checkin") || 2);
       await repo.addPoints(per, `打卡「${h.name}」`, today);
 
+      // 缺点 Boss：避开一次，削弱它 3 点生命值
+      if (h.type === "bad") {
+        const newHp = Math.max(0, h.hp - 3);
+        await repo.updateHabit(h.id, { hp: newHp });
+        if (newHp === 0) toast.success(`⚔️ 「${h.name}」被击败了！可以把它转化为优点了`);
+      }
+
       // 满分日判断
       const willBeFull = dueHabits.every((x) => x.id === h.id || doneSet.has(x.id));
       if (willBeFull) {
@@ -84,6 +92,11 @@ export function TodayPage() {
       // 取消打卡 → 扣回本次打卡所得的分（含满分奖励，防刷分）
       const per = Number(await repo.getSettingValue("points_per_checkin") || 2);
       await repo.addPoints(-per, `取消打卡「${h.name}」`, today);
+
+      // 缺点 Boss：取消避开，回补生命值
+      if (h.type === "bad") {
+        await repo.updateHabit(h.id, { hp: Math.min(100, h.hp + 3) });
+      }
 
       // 如果取消前是满分日，扣回满分奖励
       const wasFull = dueHabits.every((x) => doneSet.has(x.id));
@@ -192,7 +205,7 @@ export function TodayPage() {
         <div className="min-w-0">
           <div className="flex items-baseline gap-2 mb-3">
             <span className="font-bold text-rose-500">🛡️ 缺点抵制</span>
-            <span className="text-xs text-[var(--ink-soft)]">避开了就打卡</span>
+            <span className="text-xs text-[var(--ink-soft)]">每天避开 = 削弱 Boss 生命值</span>
             <span className="ml-auto text-xs text-[var(--ink-soft)]">
               {bad.filter((h) => doneSet.has(h.id)).length}/{bad.length}
             </span>
@@ -202,9 +215,11 @@ export function TodayPage() {
               <div className="card p-6 text-center text-sm text-[var(--ink-soft)]">还没有缺点项目</div>
             )}
             {bad.map((h) => (
-              <HabitCard key={h.id} habit={h} done={doneSet.has(h.id)}
+              <BossCard key={h.id} habit={h} done={doneSet.has(h.id)}
                 streak={streakMap.get(h.id)?.current ?? 0}
-                onClick={() => handleToggle(h)} />
+                onToggle={() => handleToggle(h)}
+                onConverted={async () => { await refresh(); toast.success("🎉 转化成功！新的优点已加入清单"); }}
+              />
             ))}
           </div>
         </div>
@@ -213,17 +228,15 @@ export function TodayPage() {
       {/* 一句话回顾 */}
       <div className="card p-4 mt-6">
         <div className="text-sm font-semibold mb-2">📝 今日一句话回顾</div>
-        <div className="flex gap-2">
+        <div className="flex-1 min-w-0 flex items-center gap-2">
           <TextInput
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder={noteLoaded ? "今天，一句话总结…" : ""}
             maxLength={100}
+            onKeyDown={(e) => e.key === "Enter" && saveNote()}
           />
-          <button onClick={saveNote}
-            className="px-4 rounded-xl bg-emerald-500 text-white text-sm hover:bg-emerald-600 active:scale-95 transition">
-            保存
-          </button>
+          <Button onClick={saveNote} className="shrink-0 whitespace-nowrap px-5">保存</Button>
         </div>
       </div>
     </div>

@@ -23,6 +23,10 @@ export function SettingsPage() {
   const [fullDay, setFullDay] = useState(5);
   const [reminderEnabled, setReminderEnabled] = useState(true);
   const [reminderTime, setReminderTime] = useState("21:00");
+  const [llmBase, setLlmBase] = useState("");
+  const [llmKey, setLlmKey] = useState("");
+  const [llmModel, setLlmModel] = useState("");
+  const [showKey, setShowKey] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -31,6 +35,9 @@ export function SettingsPage() {
       setFullDay(Number(await repo.getSettingValue("points_full_day") || 5));
       setReminderEnabled((await repo.getSettingValue("reminder_enabled")) === "1");
       setReminderTime(await repo.getSettingValue("reminder_time") || "21:00");
+      setLlmBase(await repo.getSettingValue("llm_base_url") || "https://dacint.tailae8db5.ts.net/v1");
+      setLlmKey(await repo.getSettingValue("llm_api_key") || "");
+      setLlmModel(await repo.getSettingValue("llm_model") || "GLM-5.3-Flash");
     })();
   }, []);
 
@@ -118,6 +125,35 @@ export function SettingsPage() {
           <div className="pb-0"><Button onClick={saveReminder}>保存</Button></div>
         </div>
         <div className="text-xs text-[var(--ink-soft)] mt-1">到点后若今日仍有未打卡项，将弹系统通知；全部完成则不打扰。</div>
+      </div>
+
+      <div className="card p-5">
+        <div className="font-semibold mb-1">🤖 AI 助手（缺点→优点转化）</div>
+        <div className="text-xs text-[var(--ink-soft)] mb-3">
+          缺点 Boss 被击败后，AI 会把它改写成一个对应的好习惯。默认服务已内置，一般无需修改。
+        </div>
+        <div className="space-y-3">
+          <Field label="接口地址（Base URL）">
+            <TextInput value={llmBase} onChange={(e) => setLlmBase(e.target.value)} placeholder="https://…/v1" />
+          </Field>
+          <Field label="模型名称（注意大小写，如 GLM-5.3-Flash）">
+            <TextInput value={llmModel} onChange={(e) => setLlmModel(e.target.value)} placeholder="GLM-5.3-Flash" />
+          </Field>
+          <Field label="API Key">
+            <div className="flex gap-2">
+              <TextInput type={showKey ? "text" : "password"} value={llmKey} onChange={(e) => setLlmKey(e.target.value)} placeholder="um-share-…" />
+              <Button variant="soft" className="shrink-0" onClick={() => setShowKey(!showKey)}>{showKey ? "隐藏" : "显示"}</Button>
+            </div>
+          </Field>
+          <div className="text-right">
+            <Button onClick={async () => {
+              await repo.setSettingValue("llm_base_url", llmBase.trim());
+              await repo.setSettingValue("llm_api_key", llmKey.trim());
+              await repo.setSettingValue("llm_model", llmModel.trim());
+              toast.success("AI 设置已保存");
+            }}>保存</Button>
+          </div>
+        </div>
       </div>
 
       <div className="card p-5">

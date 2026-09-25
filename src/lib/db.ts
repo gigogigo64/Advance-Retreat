@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS habits (
   start_date TEXT NOT NULL,
   note TEXT DEFAULT '',
   archived INTEGER NOT NULL DEFAULT 0,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  hp INTEGER NOT NULL DEFAULT 100,
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
@@ -74,6 +76,15 @@ CREATE INDEX IF NOT EXISTS idx_checkins_habit ON checkins(habit_id);
 export async function getDb(): Promise<Database> {
   if (!db) {
     db = await Database.load("sqlite:advance-retreat.db");
+    // 老库升级：v0.1 只有基础列，补充 v0.2 新增的 sort_order / hp
+    const cols = await db.select<{
+      name: string;
+    }[]>("PRAGMA table_info(habits)");
+    const names = new Set(cols.map((c) => c.name));
+    if (!names.has("sort_order"))
+      await db.execute("ALTER TABLE habits ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0");
+    if (!names.has("hp"))
+      await db.execute("ALTER TABLE habits ADD COLUMN hp INTEGER NOT NULL DEFAULT 100");
     await db.execute(SCHEMA);
     // 默认积分规则
     await db.execute(
@@ -83,7 +94,14 @@ export async function getDb(): Promise<Database> {
         ('points_full_day', '5'),
         ('theme', 'system'),
         ('reminder_enabled', '1'),
-        ('reminder_time', '21:00')`
+        ('reminder_time', '21:00'),
+        ('llm_base_url', 'https://dacint.tailae8db5.ts.net/v1'),
+        ('llm_api_key', 'um-share-ZLGH16Jx048VwokN71gkWVVzFRtSH2ULlb_BD7CkPRw'),
+        ('llm_model', 'GLM-5.3-Flash')`
+    );
+    // 老库已有数据时，按 type 填充初始 sort_order
+    await db.execute(
+      `UPDATE habits SET sort_order = id WHERE sort_order = 0`
     );
   }
   return db;

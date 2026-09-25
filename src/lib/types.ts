@@ -13,6 +13,10 @@ export interface Habit {
   start_date: string;
   note: string;
   archived: number;
+  /** 列表排序（值越小越靠前） */
+  sort_order: number;
+  /** 缺点 Boss 生命值（0~100，仅 type=bad 有效） */
+  hp: number;
   created_at: string;
 }
 
