@@ -1,7 +1,9 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import type { Habit } from "../lib/types";
-import { suggestGoodHabit, createHabit, updateHabit, archiveHabit } from "../lib/repo";
+import { createHabit, archiveHabit } from "../lib/repo";
+import { runConversionAgent, undoConversion, type AgentStep, type ConversionResult } from "../lib/llm";
 import { Modal, Button, TextInput } from "./ui";
 
 /**
@@ -119,7 +121,7 @@ export function BossCard({
       {convertOpen && (
         <ConvertModal
           habit={habit}
-          onClose={() => setConvertOpen(false)}
+          onClose={() => { setConvertOpen(false); onConverted(); }}
           onDone={() => { setConvertOpen(false); onConverted(); }}
         />
       )}
@@ -127,83 +129,147 @@ export function BossCard({
   );
 }
 
-/** 击败后的转化弹窗：调 LLM 生成建议 → 用户确认后创建优点并归档缺点 */
+/** 击败后的转化弹窗：LLM 以工具调用方式直接完成「建优点 + 归档缺点」，可撤销 */
 function ConvertModal({ habit, onClose, onDone }: { habit: Habit; onClose: () => void; onDone: () => void }) {
-  const [loading, setLoading] = useState(true);
+  const [steps, setSteps] = useState<AgentStep[]>([]);
+  const [result, setResult] = useState<ConversionResult | null>(null);
   const [error, setError] = useState("");
-  const [name, setName] = useState("");
-  const [note, setNote] = useState("");
+  const [running, setRunning] = useState(false);
+  const [manual, setManual] = useState(false);
+  const [mName, setMName] = useState("");
+  const [mNote, setMNote] = useState("");
 
-  const load = async () => {
-    setLoading(true);
-    setError("");
+  const run = async () => {
+    setRunning(true); setError(""); setSteps([]); setResult(null); setManual(false);
     try {
-      const s = await suggestGoodHabit(habit.name, habit.note);
-      setName(s.name);
-      setNote(s.note);
+      const r = await runConversionAgent(habit, (s) => setSteps((prev) => [...prev, s]));
+      if (r.ok) {
+        setResult(r);
+        toast.success("🎉 转化完成！新的优点已加入清单");
+      } else {
+        setError("AI 未能完成转化，可重试或手动填写");
+        setManual(true);
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "生成失败");
-      setName("");
-      setNote("");
+      setError(e instanceof Error ? e.message : "调用 AI 失败");
+      setManual(true);
     } finally {
-      setLoading(false);
+      setRunning(false);
     }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []); // 挂载即请求
+  // 挂载即运行智能体
+  useEffect(() => { run(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
-  const confirm = async () => {
-    if (!name.trim()) return;
+  const undo = async () => {
+    if (!result) return;
+    await undoConversion(result);
+    toast("已撤销本次转化，缺点已恢复", { icon: "↩️" });
+    onDone();
+  };
+
+  const manualSave = async () => {
+    if (!mName.trim()) return;
     await createHabit({
-      type: "good", name: name.trim(), emoji: "🌱", color: habit.color,
+      type: "good", name: mName.trim(), emoji: "🌱", color: habit.color,
       category: habit.category, freq_type: habit.freq_type,
-      freq_target: habit.freq_target, note: note.trim(),
+      freq_target: habit.freq_target, note: mNote.trim(),
     });
-    await updateHabit(habit.id, { hp: 100 });
     await archiveHabit(habit.id, true);
+    toast.success("已创建新的好习惯并归档该缺点");
     onDone();
   };
 
   return (
     <Modal open onOpenChange={(o) => !o && onClose()} title="⚔️ Boss 已被击败！">
-      {loading ? (
-        <div className="py-8 text-center">
-          <div className="text-3xl mb-3 animate-bounce">🤔</div>
-          <div className="text-sm text-[var(--ink-soft)]">AI 正在想一个好的替代习惯…</div>
+      <div className="text-sm mb-3">
+        <span className="text-rose-500 font-semibold line-through">{habit.emoji} {habit.name}</span>
+        <span className="mx-2 text-[var(--ink-soft)]">→</span>
+        <span className="text-emerald-600 font-semibold">🌱 新习惯</span>
+      </div>
+
+      {/* 智能体执行过程（实时） */}
+      <div className="rounded-xl bg-[var(--surface-2)] p-3 mb-3 max-h-52 overflow-y-auto">
+        {steps.length === 0 && running && (
+          <div className="text-sm text-[var(--ink-soft)] flex items-center gap-2">
+            <span className="text-lg animate-bounce">🤔</span> AI 正在思考并操作…
+          </div>
+        )}
+        {steps.map((s, i) => (
+          <div key={i} className="flex items-start gap-2 text-xs py-0.5">
+            <span className="text-[var(--ink-soft)] tabular-nums">{i + 1}.</span>
+            {s.type === "tool" ? (
+              <span className="flex-1 min-w-0">
+                <span className="font-medium">{TOOL_LABEL[s.name ?? ""] ?? s.name}</span>
+                <span className="text-[var(--ink-soft)] ml-1 break-words">{toolDetail(s)}</span>
+              </span>
+            ) : (
+              <span className="flex-1 min-w-0 text-[var(--ink-soft)] break-words">{s.text}</span>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {result && (
+        <div className="rounded-xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 p-3 mb-3 text-sm">
+          ✅ {result.summary}
+          <div className="text-xs text-[var(--ink-soft)] mt-1">
+            新建优点 {result.createdHabitIds.length} 项 · 归档缺点 {result.archivedHabitIds.length} 项
+            {result.source === "json" && "（AI 未走工具，已按建议自动创建）"}
+          </div>
         </div>
-      ) : (
-        <>
-          <div className="text-sm mb-3">
-            <span className="text-rose-500 font-semibold line-through">{habit.emoji} {habit.name}</span>
-            <span className="mx-2 text-[var(--ink-soft)]">→</span>
-            <span className="text-emerald-600 font-semibold">🌱 新习惯</span>
-          </div>
-          {error && (
-            <div className="text-xs text-amber-600 bg-amber-500/10 rounded-lg p-2 mb-2">
-              ⚠️ {error}，请手动填写或重试
-            </div>
-          )}
-          <div className="mb-3">
-            <div className="text-xs text-[var(--ink-soft)] mb-1.5">替代的好习惯（可修改）</div>
-            <TextInput value={name} onChange={(e) => setName(e.target.value)} maxLength={30}
-              placeholder="如：每天喝够8杯水" />
-          </div>
-          <div className="mb-4">
-            <div className="text-xs text-[var(--ink-soft)] mb-1.5">执行建议（可选）</div>
-            <TextInput value={note} onChange={(e) => setNote(e.target.value)} maxLength={50}
-              placeholder="如：少量多次饮水" />
-          </div>
-          <div className="flex justify-between">
-            <Button variant="ghost" onClick={load} disabled={loading}>🔄 重新生成</Button>
-            <div className="flex gap-2">
-              <Button variant="ghost" onClick={onClose}>暂不转化</Button>
-              <Button onClick={confirm} disabled={!name.trim()}>确认转化</Button>
-            </div>
-          </div>
-          <div className="text-[11px] text-[var(--ink-soft)] mt-3">
-            确认后会创建新的优点项目，并将该缺点归档（生命值重置，可随时恢复）。
-          </div>
-        </>
       )}
+      {error && (
+        <div className="text-xs text-amber-600 bg-amber-500/10 rounded-lg p-2 mb-3">⚠️ {error}</div>
+      )}
+      {manual && !result && (
+        <div className="mb-3">
+          <div className="text-xs text-[var(--ink-soft)] mb-1.5">手动创建替代好习惯</div>
+          <TextInput value={mName} onChange={(e) => setMName(e.target.value)} maxLength={30}
+            placeholder="如：每天喝够8杯水" />
+          <div className="mt-2">
+            <TextInput value={mNote} onChange={(e) => setMNote(e.target.value)} maxLength={50}
+              placeholder="执行建议（可选）" />
+          </div>
+        </div>
+      )}
+
+      <div className="flex justify-between items-center gap-2">
+        <Button variant="ghost" onClick={run} disabled={running}>🔄 重新生成</Button>
+        <div className="flex gap-2">
+          {result ? (
+            <>
+              <Button variant="danger" onClick={undo}>撤销转化</Button>
+              <Button onClick={onDone}>完成</Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" onClick={onClose}>暂不转化</Button>
+              {manual && <Button onClick={manualSave} disabled={!mName.trim()}>手动创建</Button>}
+            </>
+          )}
+        </div>
+      </div>
+      <div className="text-[11px] text-[var(--ink-soft)] mt-3">
+        转化由 AI 通过工具直接完成：新建好习惯并归档该缺点；如不满意可一键撤销。
+      </div>
     </Modal>
   );
+}
+
+const TOOL_LABEL: Record<string, string> = {
+  list_habits: "🔍 查看现有习惯",
+  create_good_habit: "🌱 创建好习惯",
+  update_habit: "✏️ 修改条目",
+  archive_habit: "📦 归档缺点",
+  finish: "✅ 完成",
+};
+
+function toolDetail(s: AgentStep): string {
+  const r = s.result as Record<string, unknown> | undefined;
+  if (r?.error) return `⚠️ ${r.error}`;
+  if (s.name === "list_habits") return `已读取 ${Array.isArray(s.result) ? s.result.length : 0} 项`;
+  if (s.name === "create_good_habit" && r?.name) return `「${r.name}」`;
+  if (s.name === "archive_habit") return "已归档";
+  if (s.name === "finish") return "结束";
+  return "";
 }

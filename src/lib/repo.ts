@@ -50,6 +50,13 @@ export async function deleteHabit(id: number): Promise<void> {
   await d.execute("DELETE FROM habits WHERE id = ?", [id]);
 }
 
+/** 按 id 取单条习惯（不存在返回 null） */
+export async function getHabit(id: number): Promise<Habit | null> {
+  const d = await getDb();
+  const r = await d.select<Habit[]>("SELECT * FROM habits WHERE id = ?", [id]);
+  return r.length ? r[0] : null;
+}
+
 /** 保存同类内的新顺序（传入该 type 全部 id，按新顺序） */
 export async function reorderHabits(_type: HabitType, orderedIds: number[]): Promise<void> {
   const d = await getDb();
@@ -181,62 +188,6 @@ export async function redeemReward(r: Reward): Promise<void> {
 export async function listRedemptions(): Promise<Redemption[]> {
   const d = await getDb();
   return d.select<Redemption[]>("SELECT id, reward_name, cost, date FROM redemptions ORDER BY created_at DESC");
-}
-
-/* ---------------- LLM（缺点→优点智能转化） ---------------- */
-
-export interface LlmSuggestion {
-  name: string;
-  emoji: string;
-  note: string;
-}
-
-/**
- * 调用外接 LLM，把坏习惯改写为对应的好习惯。
- * 走 Tauri http 插件（绕过 WebView CORS），模型返回纯 JSON。
- */
-export async function suggestGoodHabit(badName: string, badNote: string): Promise<LlmSuggestion> {
-  const [baseUrl, apiKey, model] = await Promise.all([
-    getSettingValue("llm_base_url"),
-    getSettingValue("llm_api_key"),
-    getSettingValue("llm_model"),
-  ]);
-  if (!baseUrl || !apiKey || !model)
-    throw new Error("未配置 LLM，请到设置页填写");
-
-  const sys =
-    "你是习惯养成教练。用户会给出一个坏习惯，你要把它改写成一个具体、可执行、可打卡的对应好习惯。" +
-    '严格只输出一个 JSON 对象，不要任何其他文字：{"name":"好习惯名(不超过14字)","emoji":"单个emoji","note":"一句执行建议(不超过20字)"}';
-  const user = `坏习惯：${badName}${badNote ? `（${badNote}）` : ""}`;
-
-  const resp = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: sys },
-        { role: "user", content: user },
-      ],
-      max_tokens: 200,
-      temperature: 0.6,
-    }),
-  });
-  if (!resp.ok) throw new Error(`LLM 请求失败 (${resp.status})`);
-  const data = await resp.json();
-  const text: string = data?.choices?.[0]?.message?.content ?? "";
-  const m = text.match(/\{[\s\S]*\}/);
-  if (!m) throw new Error("LLM 返回格式异常");
-  const obj = JSON.parse(m[0]) as Partial<LlmSuggestion>;
-  if (!obj.name) throw new Error("LLM 未返回有效名称");
-  return {
-    name: String(obj.name).slice(0, 20),
-    emoji: obj.emoji && String(obj.emoji).length <= 4 ? String(obj.emoji) : "🌱",
-    note: obj.note ? String(obj.note).slice(0, 50) : "",
-  };
 }
 
 /* ---------------- export / import ---------------- */

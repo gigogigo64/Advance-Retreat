@@ -218,7 +218,7 @@ export function TodayPage() {
               <BossCard key={h.id} habit={h} done={doneSet.has(h.id)}
                 streak={streakMap.get(h.id)?.current ?? 0}
                 onToggle={() => handleToggle(h)}
-                onConverted={async () => { await refresh(); toast.success("🎉 转化成功！新的优点已加入清单"); }}
+                onConverted={async () => { await refresh(); }}
               />
             ))}
           </div>

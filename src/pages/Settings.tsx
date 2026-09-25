@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import * as repo from "../lib/repo";
+import { testLlmConnection } from "../lib/llm";
 import { getDb } from "../lib/db";
 import { Button, Field, TextInput } from "../components/ui";
 
@@ -27,6 +28,7 @@ export function SettingsPage() {
   const [llmKey, setLlmKey] = useState("");
   const [llmModel, setLlmModel] = useState("");
   const [showKey, setShowKey] = useState(false);
+  const [testing, setTesting] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -145,7 +147,21 @@ export function SettingsPage() {
               <Button variant="soft" className="shrink-0" onClick={() => setShowKey(!showKey)}>{showKey ? "隐藏" : "显示"}</Button>
             </div>
           </Field>
-          <div className="text-right">
+          <div className="flex justify-end gap-2">
+            <Button variant="soft" disabled={testing} onClick={async () => {
+              await repo.setSettingValue("llm_base_url", llmBase.trim());
+              await repo.setSettingValue("llm_api_key", llmKey.trim());
+              await repo.setSettingValue("llm_model", llmModel.trim());
+              setTesting(true);
+              try {
+                const r = await testLlmConnection();
+                toast.success(`连接正常，AI 回复：${r}`);
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "连接失败");
+              } finally {
+                setTesting(false);
+              }
+            }}>{testing ? "测试中…" : "测试连接"}</Button>
             <Button onClick={async () => {
               await repo.setSettingValue("llm_base_url", llmBase.trim());
               await repo.setSettingValue("llm_api_key", llmKey.trim());

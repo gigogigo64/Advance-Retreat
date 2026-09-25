@@ -103,15 +103,15 @@ for i in 0..8:
 
 ## 四、任务清单
 
-- [ ] T1 修复 http 通道：repo.ts 改用 plugin-http fetch；capability 配 URL scope
-- [ ] T2 `lib/llmAgent.ts`：工具定义 + `chatCompletions` + 智能体循环 + 守门 + 变更记录
-- [ ] T3 `repo.ts` 暴露工具所需的原子操作（复用现有 create/update/archive/list）
-- [ ] T4 重写系统提示词（见 3.3）并接入
-- [ ] T5 `BossCard.tsx` / `ConvertModal` 改造：实时展示智能体步骤 + 摘要 + 「撤销本次转化」
-- [ ] T6 降级链与错误兜底
-- [ ] T7 设置页：AI 区块补充「测试连接」按钮（便于诊断）
-- [ ] T8 构建验证（`npm run build` 类型通过；`npm run deploy` 出包）
-- [ ] T9 文档对齐 + 提交
+- [x] T1 修复 http 通道：`repo.ts` 改用 plugin-http fetch；capability 配 URL scope
+- [x] T2 `src/lib/llm.ts`：工具定义 + `chat` + 智能体循环 + 守门 + 变更记录
+- [x] T3 `repo.ts` 暴露工具所需原子操作（新增 `getHabit`，复用 create/update/archive/list）
+- [x] T4 重写系统提示词（见 3.3）并接入
+- [x] T5 `BossCard.tsx` / `ConvertModal` 改造：实时展示智能体步骤 + 摘要 + 「撤销本次转化」
+- [x] T6 降级链与错误兜底
+- [x] T7 设置页：AI 区块补充「测试连接」按钮
+- [x] T8 构建验证（`npm run build` 类型通过；`npm run deploy` 出包）
+- [x] T9 文档对齐 + 提交
 
 ## 五、验收标准
 
@@ -130,3 +130,35 @@ for i in 0..8:
 | 通配 scope 安全面偏大 | 仅 https；本地优先、不外传数据；规范记录 |
 | LLM 循环失控 | 硬上限 8 轮 + `finish` 终止工具 |
 | 无法联网实测（沙箱） | 已用 curl 验证工具调用可用；应用内以「测试连接」+ 日志诊断 |
+
+## 七、执行结果与验证（已完成）
+
+**实现文件**
+- 新增 `src/lib/llm.ts`（工具定义 / 系统提示词 / 智能体循环 / 守门 / 降级 / 撤销 / 测试连接）
+- 改 `src/lib/repo.ts`（移除旧 `suggestGoodHabit`，新增 `getHabit`）
+- 改 `src/components/BossCard.tsx`（ConvertModal 改为智能体过程视图）
+- 改 `src/pages/Today.tsx`（回调简化）、`src/pages/Settings.tsx`（测试连接）
+- 改 `src-tauri/capabilities/default.json`（http scope）
+
+**真实验证（对中转站 GLM 实测，复刻智能体循环）**
+
+用例一（正常流程）：
+```
+round1 list_habits() -> 2 项
+round2 create_good_habit({name:"睡前按时上床",...}) -> {ok,id:10}
+round3 archive_habit({id:1}) -> {ok}
+round4 finish({summary:...}) -> {ok}
+结果：created [10] / archived [1] / finish 已调用 ✅
+```
+
+用例二（守门报错自纠）：
+```
+round2 create_good_habit("23点前放下手机") -> {error:同名}
+round3 create_good_habit("睡前半小时关屏") -> {ok,id:10}  # 自动改名重试
+round4 archive_habit({id:1}) -> {ok}
+round5 finish(...)                    ✅
+```
+
+**结论**：系统提示词与工具调用范式在真实模型上完全按预期工作，含错误自纠。降级链与撤销为静态审查 + 类型检查保证。
+
+**构建**：`npm run build` 类型通过；`npm run deploy` 出包并部署到根目录（`知进退.exe` / `知进退-安装包.exe`）。capability 的对象式 scope 写法被接受。
