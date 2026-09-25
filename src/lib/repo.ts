@@ -143,6 +143,18 @@ export async function addPoints(delta: number, reason: string, date: string): Pr
   await d.execute("INSERT INTO points_log (delta, reason, date) VALUES (?,?,?)", [delta, reason, date]);
 }
 
+/** 某日、指定原因集合的积分净额（定向查询，避免全库导出） */
+export async function sumPointsByDate(date: string, reasons: string[]): Promise<number> {
+  if (!reasons.length) return 0;
+  const d = await getDb();
+  const ph = reasons.map(() => "?").join(",");
+  const r = await d.select<{ total: number | null }[]>(
+    `SELECT SUM(delta) as total FROM points_log WHERE date = ? AND reason IN (${ph})`,
+    [date, ...reasons]
+  );
+  return r[0]?.total ?? 0;
+}
+
 export async function getSettingValue(key: string): Promise<string> {
   const d = await getDb();
   const r = await d.select<{ value: string }[]>("SELECT value FROM settings WHERE key = ?", [key]);

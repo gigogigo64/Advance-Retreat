@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, Reorder, useDragControls } from "framer-motion";
 import { useApp } from "../lib/store";
 import * as repo from "../lib/repo";
 import { CATEGORIES, EMOJIS_BAD, EMOJIS_GOOD, HABIT_COLORS, type FreqType, type HabitType } from "../lib/types";
@@ -12,37 +12,47 @@ export function HabitsPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [editing, setEditing] = useState<Habit | null>(null);
   const [creatingType, setCreatingType] = useState<HabitType | null>(null);
-  // 拖拽状态：正在拖拽的 id、悬停目标 id（同栏内）
-  const [dragId, setDragId] = useState<number | null>(null);
-  const [overId, setOverId] = useState<number | null>(null);
   const [defaultPoints, setDefaultPoints] = useState(2);
+  // 两栏各自的本地有序列表（Framer Motion Reorder，指针方案）
+  const [goodItems, setGoodItems] = useState<Habit[]>([]);
+  const [badItems, setBadItems] = useState<Habit[]>([]);
+  const persistTimer = useRef<number | null>(null);
 
   // 新建习惯的默认得分取自设置页「每次打卡（新习惯默认）」
   useEffect(() => {
     repo.getSettingValue("points_per_checkin").then((v) => setDefaultPoints(Number(v) || 2));
   }, []);
 
+  // 从 store 同步两栏（新增/编辑/归档/刷新后）
+  useEffect(() => {
+    const keep = (type: HabitType) =>
+      habits.filter((h) => h.type === type && (showArchived || !h.archived));
+    setGoodItems(keep("good"));
+    setBadItems(keep("bad"));
+  }, [habits, showArchived]);
+
+  const setItemsOf = (t: HabitType, list: Habit[]) =>
+    t === "good" ? setGoodItems(list) : setBadItems(list);
+
+  /** 去抖持久化排序：拖动中只改本地，停手后再写库 */
+  const schedulePersist = (t: HabitType, ids: number[]) => {
+    if (persistTimer.current != null) window.clearTimeout(persistTimer.current);
+    persistTimer.current = window.setTimeout(async () => {
+      await repo.reorderHabits(t, ids);
+      await refresh();
+    }, 500);
+  };
+
   /** 同栏内上移 / 下移（拖拽的可靠备选） */
-  const move = async (colType: HabitType, id: number, dir: -1 | 1) => {
-    const col = habits.filter((h) => h.type === colType && (showArchived || !h.archived));
-    const ids = col.map((h) => h.id);
+  const move = async (t: HabitType, id: number, dir: -1 | 1) => {
+    const list = t === "good" ? goodItems : badItems;
+    const ids = list.map((h) => h.id);
     const i = ids.indexOf(id);
     const j = i + dir;
     if (i < 0 || j < 0 || j >= ids.length) return;
     [ids[i], ids[j]] = [ids[j], ids[i]];
-    await repo.reorderHabits(colType, ids);
-    await refresh();
-  };
-
-  const commitReorder = async (colType: HabitType, targetId: number) => {
-    if (dragId == null || dragId === targetId) { setDragId(null); setOverId(null); return; }
-    const col = habits.filter((h) => h.type === colType && (showArchived || !h.archived));
-    const ids = col.map((h) => h.id);
-    const from = ids.indexOf(dragId), to = ids.indexOf(targetId);
-    if (from < 0 || to < 0) { setDragId(null); setOverId(null); return; }
-    ids.splice(to, 0, ids.splice(from, 1)[0]);
-    setDragId(null); setOverId(null);
-    await repo.reorderHabits(colType, ids);
+    setItemsOf(t, ids.map((hid) => list.find((h) => h.id === hid)!));
+    await repo.reorderHabits(t, ids);
     await refresh();
   };
 
@@ -62,7 +72,7 @@ export function HabitsPage() {
       {/* 左右两栏：优点 | 缺点 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {(["good", "bad"] as HabitType[]).map((colType) => {
-          const col = habits.filter((h) => h.type === colType && (showArchived || !h.archived));
+          const items = colType === "good" ? goodItems : badItems;
           const isGood = colType === "good";
           return (
             <div key={colType} className="min-w-0">
@@ -70,7 +80,7 @@ export function HabitsPage() {
                 <span className={`font-bold ${isGood ? "text-emerald-600" : "text-rose-500"}`}>
                   {isGood ? "🌱 优点" : "🛡️ 缺点"}
                 </span>
-                <span className="text-xs text-[var(--ink-soft)]">{col.length} 项</span>
+                <span className="text-xs text-[var(--ink-soft)]">{items.length} 项</span>
                 <button
                   onClick={() => setCreatingType(colType)}
                   className={`ml-auto text-xs px-3 py-1 rounded-lg transition-colors
@@ -78,31 +88,29 @@ export function HabitsPage() {
                   + 新增{isGood ? "优点" : "缺点"}
                 </button>
               </div>
-              <div className="space-y-2.5">
-                {col.length === 0 && (
-                  <div className="card p-6 text-center text-[var(--ink-soft)] text-sm">
-                    还没有{isGood ? "优点" : "缺点"}，点上方「+ 新增{isGood ? "优点" : "缺点"}」开始
-                  </div>
-                )}
-                {col.map((h, idx) => (
-                  <HabitRow
-                    key={h.id}
-                    habit={h}
-                    dragging={dragId === h.id}
-                    over={overId === h.id && dragId !== h.id}
-                    onDragStart={() => setDragId(h.id)}
-                    onDragEnter={() => setOverId(h.id)}
-                    onDrop={() => commitReorder(colType, h.id)}
-                    onDragEnd={() => { setDragId(null); setOverId(null); }}
-                    onEdit={() => setEditing(h)}
-                    onChanged={refresh}
-                    first={idx === 0}
-                    last={idx === col.length - 1}
-                    onMoveUp={() => move(colType, h.id, -1)}
-                    onMoveDown={() => move(colType, h.id, 1)}
-                  />
-                ))}
-              </div>
+              {items.length === 0 ? (
+                <div className="card p-6 text-center text-[var(--ink-soft)] text-sm">
+                  还没有{isGood ? "优点" : "缺点"}，点上方「+ 新增{isGood ? "优点" : "缺点"}」开始
+                </div>
+              ) : (
+                <Reorder.Group axis="y" values={items} onReorder={(next) => {
+                  setItemsOf(colType, next);
+                  schedulePersist(colType, next.map((h) => h.id));
+                }} className="space-y-2.5">
+                  {items.map((h, idx) => (
+                    <HabitRow
+                      key={h.id}
+                      habit={h}
+                      onEdit={() => setEditing(h)}
+                      onChanged={refresh}
+                      first={idx === 0}
+                      last={idx === items.length - 1}
+                      onMoveUp={() => move(colType, h.id, -1)}
+                      onMoveDown={() => move(colType, h.id, 1)}
+                    />
+                  ))}
+                </Reorder.Group>
+              )}
             </div>
           );
         })}
@@ -124,14 +132,13 @@ export function HabitsPage() {
 /* ---------------- 单行：就地编辑 + 拖拽 ---------------- */
 
 function HabitRow({
-  habit, dragging, over, onDragStart, onDragEnter, onDrop, onDragEnd, onEdit, onChanged,
-  first, last, onMoveUp, onMoveDown,
+  habit, onEdit, onChanged, first, last, onMoveUp, onMoveDown,
 }: {
-  habit: Habit; dragging: boolean; over: boolean;
-  onDragStart: () => void; onDragEnter: () => void; onDrop: () => void; onDragEnd: () => void;
+  habit: Habit;
   onEdit: () => void; onChanged: () => Promise<void> | void;
   first: boolean; last: boolean; onMoveUp: () => void; onMoveDown: () => void;
 }) {
+  const controls = useDragControls();
   const isGood = habit.type === "good";
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(habit.name);
@@ -164,23 +171,17 @@ function HabitRow({
   };
 
   return (
-    <div
-      onDragEnter={onDragEnter}
-      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
-      onDrop={(e) => { e.preventDefault(); onDrop(); }}
-      className={`card p-3.5 flex items-center gap-2.5 transition-all select-none
-        ${dragging ? "opacity-40 scale-95" : ""} ${over ? "ring-2 ring-emerald-400/60" : "hover:shadow-md"}`}
+    <Reorder.Item
+      value={habit}
+      dragListener={false}
+      dragControls={controls}
+      whileDrag={{ scale: 1.02, opacity: 0.92, zIndex: 30 }}
+      className="card p-3.5 flex items-center gap-2.5 select-none relative"
     >
-      {/* 拖拽把手（仅把手可拖，避免与按钮/输入冲突） */}
+      {/* 拖拽把手：仅在此按下才启动拖动（指针方案，适配 WebView2） */}
       <div
-        draggable
-        onDragStart={(e) => {
-          e.dataTransfer.setData("text/plain", String(habit.id));
-          e.dataTransfer.effectAllowed = "move";
-          onDragStart();
-        }}
-        onDragEnd={onDragEnd}
-        className="text-[var(--ink-soft)] cursor-grab active:cursor-grabbing text-base leading-none px-0.5"
+        onPointerDown={(e) => controls.start(e)}
+        className="text-[var(--ink-soft)] cursor-grab active:cursor-grabbing text-base leading-none px-0.5 touch-none"
         title="按住拖动调整顺序"
       >
         ⠿
@@ -277,7 +278,7 @@ function HabitRow({
           </>
         )}
       </div>
-    </div>
+    </Reorder.Item>
   );
 }
 

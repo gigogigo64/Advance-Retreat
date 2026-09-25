@@ -9,6 +9,8 @@ interface AppState {
   points: number;
   refresh: () => Promise<void>;
   loading: boolean;
+  /** 乐观更新：点击打卡后立即反映到本地状态，无需等待后台对账 */
+  applyCheckin: (habitId: number, date: string, done: boolean) => void;
 }
 
 const Ctx = createContext<AppState>(null!);
@@ -34,8 +36,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     refresh().finally(() => setLoading(false));
   }, []);
 
+  const applyCheckin = (habitId: number, date: string, done: boolean) => {
+    setCheckins((prev) => {
+      const exists = prev.some((c) => c.habit_id === habitId && c.date === date);
+      if (done) return exists ? prev : [...prev, { id: -Date.now(), habit_id: habitId, date }];
+      return exists ? prev.filter((c) => !(c.habit_id === habitId && c.date === date)) : prev;
+    });
+  };
+
   return (
-    <Ctx.Provider value={{ habits, checkins, points, refresh, loading }}>
+    <Ctx.Provider value={{ habits, checkins, points, refresh, loading, applyCheckin }}>
       {children}
     </Ctx.Provider>
   );

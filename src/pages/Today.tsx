@@ -19,7 +19,7 @@ const stepOf = (h: { hp_step?: number }) => (Number.isFinite(h.hp_step) ? Math.m
 const maxOf = (h: { hp_max?: number }) => (Number.isFinite(h.hp_max) ? Math.max(1, h.hp_max as number) : 100);
 
 export function TodayPage() {
-  const { habits, checkins, refresh } = useApp();
+  const { habits, checkins, refresh, applyCheckin } = useApp();
   const today = todayStr();
   const now = new Date();
 
@@ -67,6 +67,7 @@ export function TodayPage() {
 
   const handleToggle = async (h: (typeof dueHabits)[number]) => {
     const added = await repo.toggleCheckin(h.id, today);
+    applyCheckin(h.id, today, added); // 乐观更新：界面立即反映，无需等待后台对账
     const wasDoneBefore = doneSet.has(h.id);
 
     if (added) {
@@ -124,11 +125,9 @@ export function TodayPage() {
    */
   async function reconcileWeeklyBonus() {
     const bonus = Number(await repo.getSettingValue("points_weekly_bonus") || 10);
-    const d = await repo.exportAll();
     const today = todayStr();
-    const net = d.points_log
-      .filter((p) => p.date === today && (p.reason === "连续7天全勤" || p.reason === "撤销连续7天全勤"))
-      .reduce((s, p) => s + p.delta, 0);
+    // 定向查询当日奖励净额（取代全库导出）
+    const net = await repo.sumPointsByDate(today, ["连续7天全勤", "撤销连续7天全勤"]);
     const full = await isSevenDayFull();
     if (full && net < bonus) {
       await repo.addPoints(bonus - net, "连续7天全勤", today);
@@ -139,9 +138,10 @@ export function TodayPage() {
   }
 
   async function isSevenDayFull(): Promise<boolean> {
-    const d = await repo.exportAll();
+    const from = new Date(); from.setDate(from.getDate() - 6);
+    const rows = await repo.listCheckinsBetween(todayStr(from), todayStr());
     const perDayDone = new Map<string, Set<number>>();
-    for (const c of d.checkins) {
+    for (const c of rows) {
       if (!perDayDone.has(c.date)) perDayDone.set(c.date, new Set());
       perDayDone.get(c.date)!.add(c.habit_id);
     }

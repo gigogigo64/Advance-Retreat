@@ -24,14 +24,16 @@ export function BossCard({
   const hpStep = habit.hp_step ?? 3;
   const hp = Math.max(0, Math.min(hpMax, habit.hp));
   const defeated = hp <= 0;
+  // 已击败的 Boss 仍允许取消“今日已打卡”（否则一旦击败就无法撤回）
+  const canToggle = !defeated || done;
   const [convertOpen, setConvertOpen] = useState(false);
 
   return (
     <>
       <motion.button
-        onClick={() => !defeated && onToggle()}
-        whileTap={defeated ? undefined : { scale: 0.96 }}
-        whileHover={defeated ? undefined : { y: -2 }}
+        onClick={() => canToggle && onToggle()}
+        whileTap={canToggle ? { scale: 0.96 } : undefined}
+        whileHover={canToggle ? { y: -2 } : undefined}
         className={`card text-left p-4 w-full transition-shadow relative overflow-hidden border-2
           ${done ? "shadow-md" : "hover:shadow-md"} ${defeated ? "opacity-70" : ""}`}
         style={done ? {
