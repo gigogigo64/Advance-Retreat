@@ -8,84 +8,74 @@ import { toast } from "sonner";
 
 export function HabitsPage() {
   const { habits, refresh } = useApp();
-  const [tab, setTab] = useState<HabitType>("good");
   const [showArchived, setShowArchived] = useState(false);
   const [editing, setEditing] = useState<Habit | null>(null);
-  const [creating, setCreating] = useState(false);
-
+  const [creatingType, setCreatingType] = useState<HabitType | null>(null);
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl font-bold">清单管理</h1>
-        <div className="flex gap-2">
-          <Button variant="soft" onClick={() => setShowArchived(!showArchived)}>
-            {showArchived ? "隐藏已归档" : "显示已归档"}
-          </Button>
-          <Button onClick={() => setCreating(true)}>+ 新增{tab === "good" ? "优点" : "缺点"}</Button>
-        </div>
-      </div>
-
-      {/* 优/缺 切换 */}
-      <div className="inline-flex bg-[var(--surface-2)] rounded-2xl p-1 mb-5">
-        {(["good", "bad"] as HabitType[]).map((t) => (
-          <button key={t}
-            onClick={() => setTab(t)}
-            className={`px-5 py-1.5 rounded-xl text-sm font-medium transition-all
-              ${tab === t ? "bg-[var(--surface)] shadow-sm" : "text-[var(--ink-soft)]"}`}>
-            {t === "good" ? "🌱 优点" : "🛡️ 缺点"}
-          </button>
-        ))}
+        <Button variant="soft" onClick={() => setShowArchived(!showArchived)}>
+          {showArchived ? "隐藏已归档" : "显示已归档"}
+        </Button>
       </div>
 
       {/* 左右两栏：优点 | 缺点 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {(["good","bad"] as HabitType[]).map((colType) => {
+        {(["good", "bad"] as HabitType[]).map((colType) => {
           const col = habits.filter((h) => h.type === colType && (showArchived || !h.archived));
+          const isGood = colType === "good";
           return (
-        <div key={colType} className="min-w-0">
-          <div className="flex items-baseline gap-2 mb-3">
-            <span className={`font-bold ${colType === "good" ? "text-emerald-600" : "text-rose-500"}`}>
-              {colType === "good" ? "🌱 优点" : "🛡️ 缺点"}
-            </span>
-            <span className="text-xs text-[var(--ink-soft)]">{col.length} 项</span>
-          </div>
-          <div className="space-y-2.5">
-            {col.length === 0 && (
-              <div className="card p-6 text-center text-[var(--ink-soft)] text-sm">
-                还没有{colType === "good" ? "优点" : "缺点"}，点右上角「新增{colType === "good" ? "优点" : "缺点"}」开始
+            <div key={colType} className="min-w-0">
+              <div className="flex items-center gap-2 mb-3">
+                <span className={`font-bold ${isGood ? "text-emerald-600" : "text-rose-500"}`}>
+                  {isGood ? "🌱 优点" : "🛡️ 缺点"}
+                </span>
+                <span className="text-xs text-[var(--ink-soft)]">{col.length} 项</span>
+                <button
+                  onClick={() => setCreatingType(colType)}
+                  className={`ml-auto text-xs px-3 py-1 rounded-lg transition-colors
+                    ${isGood ? "text-emerald-600 hover:bg-emerald-500/10" : "text-rose-500 hover:bg-rose-500/10"}`}>
+                  + 新增{isGood ? "优点" : "缺点"}
+                </button>
               </div>
-            )}
-            {col.map((h) => (
-          <div key={h.id} className="card p-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0"
-              style={{ background: `${h.color}22` }}>
-              {h.emoji}
+              <div className="space-y-2.5">
+                {col.length === 0 && (
+                  <div className="card p-6 text-center text-[var(--ink-soft)] text-sm">
+                    还没有{isGood ? "优点" : "缺点"}，点上方「+ 新增{isGood ? "优点" : "缺点"}」开始
+                  </div>
+                )}
+                {col.map((h) => (
+                  <div key={h.id} className="card p-4 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0"
+                      style={{ background: `${h.color}22` }}>
+                      {h.emoji}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-sm">{h.name}</span>
+                        {h.archived ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--surface-2)] text-[var(--ink-soft)]">已归档</span> : null}
+                      </div>
+                      <div className="text-xs text-[var(--ink-soft)] mt-0.5">
+                        {h.category} · {freqLabel(h)}{h.note ? ` · ${h.note}` : ""}
+                      </div>
+                    </div>
+                    <Button variant="ghost" onClick={() => setEditing(h)}>编辑</Button>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-sm">{h.name}</span>
-                {h.archived ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--surface-2)] text-[var(--ink-soft)]">已归档</span> : null}
-              </div>
-              <div className="text-xs text-[var(--ink-soft)] mt-0.5">
-                {h.category} · {freqLabel(h)}{h.note ? ` · ${h.note}` : ""}
-              </div>
-            </div>
-            <Button variant="ghost" onClick={() => setEditing(h)}>编辑</Button>
-          </div>
-            ))}
-          </div>
-        </div>
           );
         })}
       </div>
 
       <HabitForm
-        open={creating || !!editing}
-        onClose={() => { setCreating(false); setEditing(null); }}
+        open={!!creatingType || !!editing}
+        onClose={() => { setCreatingType(null); setEditing(null); }}
         initial={editing}
-        type={tab}
-        onSaved={async () => { await refresh(); setCreating(false); setEditing(null); }}
+        type={creatingType ?? editing?.type ?? "good"}
+        onSaved={async () => { await refresh(); setCreatingType(null); setEditing(null); }}
       />
     </div>
   );
@@ -111,11 +101,13 @@ function HabitForm({
   const [freqTarget, setFreqTarget] = useState(initial?.freq_target ?? 3);
   const [note, setNote] = useState(initial?.note ?? "");
 
-  // 切换编辑对象时重置
-  const [lastId, setLastId] = useState<number | null>(null);
-  if ((initial?.id ?? null) !== lastId) {
-    setLastId(initial?.id ?? null);
-    setName(initial?.name ?? ""); setEmoji(initial?.emoji ?? "🌱");
+  // 切换编辑对象/新建类型时重置
+  const [lastKey, setLastKey] = useState<string | null>(null);
+  const formKey = `${initial?.id ?? "new"}-${type}`;
+  if (formKey !== lastKey) {
+    setLastKey(formKey);
+    setName(initial?.name ?? "");
+    setEmoji(initial?.emoji ?? (type === "good" ? "🌱" : "🛡️"));
     setColor(initial?.color ?? HABIT_COLORS[0]); setCategory(initial?.category ?? "其他");
     setFreqType(initial?.freq_type ?? "daily"); setFreqTarget(initial?.freq_target ?? 3);
     setNote(initial?.note ?? "");

@@ -23,6 +23,8 @@
   --primary: #10b981;
   --secondary: #f43f5e;
   --accent: #6366f1;
+  --heat-empty: #f1f5f9;   /* 热力图：当日无项目（空白） */
+  --heat-0: #e2e8f0;       /* 热力图：有项目但 0% */
 }
 
 .dark {
@@ -32,6 +34,8 @@
   --ink: #f1f5f9;
   --ink-soft: #94a3b8;
   --border: #334155;
+  --heat-empty: #24334a;
+  --heat-0: #3b4d68;
 }
 
 html, body, #root {

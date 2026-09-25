@@ -34,9 +34,10 @@ export function Heatmap({
     }
   });
 
+  // 颜色：null=当日无任何项目（空白）；其余为完成率深浅
   const color = (rate: number | null) => {
-    if (rate === null) return "transparent";
-    if (rate === 0) return "#e2e8f0";
+    if (rate === null) return "var(--heat-empty)";
+    if (rate === 0) return "var(--heat-0)";
     if (rate < 0.34) return "#a7f3d0";
     if (rate < 0.67) return "#6ee7b7";
     if (rate < 1) return "#34d399";
@@ -46,10 +47,15 @@ export function Heatmap({
   return (
     <div className="overflow-x-auto pb-1">
       <div className="inline-flex flex-col gap-1">
+        {/* 月标签列宽必须与格子列宽一致（10px + 3px gap），否则会横向溢出出现滚动条 */}
         <div className="flex gap-[3px] text-[10px] text-[var(--ink-soft)] h-4">
           {weeks.map((_, i) => {
             const m = monthLabels.find((mm) => mm.idx === i);
-            return <div key={i} className="w-[13px] shrink-0">{m ? m.label : ""}</div>;
+            return (
+              <div key={i} className="w-[10px] shrink-0 relative">
+                {m && <span className="absolute left-0 top-0 whitespace-nowrap">{m.label}</span>}
+              </div>
+            );
           })}
         </div>
         <div className="flex gap-[3px]">
@@ -58,7 +64,7 @@ export function Heatmap({
               {w.map(({ date, rate }) => (
                 <div
                   key={fmt(date)}
-                  title={`${fmt(date)} 完成率 ${rate === null ? "—" : Math.round(rate * 100) + "%"}`}
+                  title={`${fmt(date)} ${rate === null ? "无项目" : "完成率 " + Math.round(rate * 100) + "%"}`}
                   className="w-[10px] h-[10px] rounded-[2px]"
                   style={{ background: color(rate) }}
                 />
