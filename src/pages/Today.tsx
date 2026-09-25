@@ -79,7 +79,7 @@ export function TodayPage() {
       } else {
         toast.success(`+${per} 分 ·「${h.name}」`);
       }
-      await maybeWeeklyBonus();
+      await reconcileWeeklyBonus();
     } else if (wasDoneBefore) {
       // 取消打卡 → 扣回本次打卡所得的分（含满分奖励，防刷分）
       const per = Number(await repo.getSettingValue("points_per_checkin") || 2);
@@ -92,22 +92,32 @@ export function TodayPage() {
         await repo.addPoints(-fullPts, "取消今日满分", today);
       }
 
-      // 重新检查：取消后，若此前刚好因本次打卡触发了7天全勤奖励，则扣回
-      await revokeWeeklyBonusIfNeeded();
+      // 对账：若因取消而不再满足7天全勤，则扣回相应奖励
+      await reconcileWeeklyBonus();
       toast(`已取消「${h.name}」，分数已相应扣除`, { icon: "↩️" });
     }
     await refresh();
   }
 
-  /** 检查今天是否存在「连续7天全勤」积分记录，若有且今天已不再满足全勤，则撤销 */
-  async function revokeWeeklyBonusIfNeeded() {
+  /**
+   * 连续7天全勤奖励对账（幂等且可逆）：
+   * 比对“今日应得”与“今日已发放净额”，只补差额 / 只扣回超额，
+   * 避免用“是否已有记录”判重导致取消后无法重新发放而净亏分。
+   */
+  async function reconcileWeeklyBonus() {
+    const bonus = Number(await repo.getSettingValue("points_weekly_bonus") || 10);
     const d = await repo.exportAll();
     const today = todayStr();
-    const hasBonusToday = d.points_log.some((p) => p.reason === "连续7天全勤" && p.date === today);
-    if (!hasBonusToday) return;
-    if (await isSevenDayFull()) return; // 仍满足则不动
-    const bonus = Number(await repo.getSettingValue("points_weekly_bonus") || 10);
-    await repo.addPoints(-bonus, "撤销连续7天全勤", today);
+    const net = d.points_log
+      .filter((p) => p.date === today && (p.reason === "连续7天全勤" || p.reason === "撤销连续7天全勤"))
+      .reduce((s, p) => s + p.delta, 0);
+    const full = await isSevenDayFull();
+    if (full && net < bonus) {
+      await repo.addPoints(bonus - net, "连续7天全勤", today);
+      if (net === 0) toast.success(`🔥 连续7天全勤！额外 +${bonus} 分`);
+    } else if (!full && net > 0) {
+      await repo.addPoints(-net, "撤销连续7天全勤", today);
+    }
   }
 
   async function isSevenDayFull(): Promise<boolean> {
@@ -124,19 +134,6 @@ export function TodayPage() {
       if (!doneSet || !doneSet.size) return false;
     }
     return true;
-  }
-
-  async function maybeWeeklyBonus() {
-    if (await isSevenDayFull()) {
-      const d = await repo.exportAll();
-      const today = todayStr();
-      const already = d.points_log.some((p) => p.reason === "连续7天全勤" && p.date === today);
-      if (!already) {
-        const bonus = Number(await repo.getSettingValue("points_weekly_bonus") || 10);
-        await repo.addPoints(bonus, "连续7天全勤", today);
-        toast.success(`🔥 连续7天反复全勤！额外 +${bonus} 分`);
-      }
-    }
   }
 
   const saveNote = async () => {
